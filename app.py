@@ -574,7 +574,7 @@ elif page == "About":
     st.write("")
     st.markdown("<div class='card'>", unsafe_allow_html=True)
     st.subheader("Contact")
-    st.write("• Email: mouaz.kashif@example.com")
+    st.write("• Email: mouazkashif451@gmail.com")
     st.write("• LinkedIn: https://www.linkedin.com/in/mouaz-kashif")
     st.write("• GitHub: https://github.com/Mouaz-Kashif")
     st.write("• Project: https://solar-panel-inspection-app.streamlit.app/")
