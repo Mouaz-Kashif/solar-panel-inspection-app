@@ -308,24 +308,83 @@ if page == "Live demo":
 
     col_left, col_right = st.columns([1, 1], gap="large")
 
-    with col_left:
+    @st.cache_resource(show_spinner=False)
+def get_demo_images_index():
+    """Download demo_images.zip once and build an index: class -> list[Path]."""
+    import zipfile
+
+    demo_root = Path(".demo_images")
+    if demo_root.exists():
+        # already extracted
+        pass
+    else:
+        demo_root.mkdir(parents=True, exist_ok=True)
+        zbytes = download_bytes(ASSETS["demo_zip"], timeout=180)
+        with zipfile.ZipFile(io.BytesIO(zbytes)) as zf:
+            zf.extractall(demo_root)
+
+    # expected structure: demo_images/<class>/file.jpg
+    base = demo_root / "demo_images"
+    idx = {}
+    if base.exists():
+        for c in CLASS_NAMES:
+            p = base / c
+            if p.exists():
+                idx[c] = sorted([x for x in p.iterdir() if x.is_file()])
+            else:
+                idx[c] = []
+    else:
+        idx = {c: [] for c in CLASS_NAMES}
+
+    return idx
+
+
+def load_random_demo_pil(class_name: str) -> Image.Image | None:
+    import random
+
+    idx = get_demo_images_index()
+    files = idx.get(class_name, [])
+    if not files:
+        return None
+    fp = random.choice(files)
+    return Image.open(fp).convert("RGB")
+
+
+with col_left:
         st.markdown("<div class='card'>", unsafe_allow_html=True)
         st.subheader("Upload image")
+
+        st.caption("No image handy? Use a built‑in sample from the dataset.")
+        bcols = st.columns(3)
+        sample_pick = None
+        for i, cname in enumerate(CLASS_NAMES):
+            with bcols[i % 3]:
+                if st.button(f"Try: {cname}", use_container_width=True):
+                    sample_pick = cname
+
         up = st.file_uploader("Solar panel photo", type=["jpg", "jpeg", "png", "webp"], label_visibility="collapsed")
 
-        if up is None:
-            st.info("Upload an image to run classification.")
+        pil = None
+        if sample_pick is not None:
+            with st.spinner("Loading sample image..."):
+                pil = load_random_demo_pil(sample_pick)
+                if pil is None:
+                    st.warning("No demo images found for that class. Re-check demo_images.zip in the release assets.")
+
+        if pil is None and up is None:
+            st.info("Upload an image to run classification, or click a sample button above.")
             st.markdown("</div>", unsafe_allow_html=True)
             st.stop()
 
-        try:
-            pil = Image.open(up).convert("RGB")
-        except Exception:
-            st.error("Could not read that file as an image. Try a JPG/PNG.")
-            st.markdown("</div>", unsafe_allow_html=True)
-            st.stop()
+        if pil is None:
+            try:
+                pil = Image.open(up).convert("RGB")
+            except Exception:
+                st.error("Could not read that file as an image. Try a JPG/PNG.")
+                st.markdown("</div>", unsafe_allow_html=True)
+                st.stop()
 
-        st.image(pil, caption="Uploaded image", use_container_width=True)
+        st.image(pil, caption="Input image", use_container_width=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
     with col_right:
@@ -513,8 +572,8 @@ elif page == "About":
     st.write("")
     st.markdown("<div class='card'>", unsafe_allow_html=True)
     st.subheader("Contact")
-    st.write("• Email: your.email@example.com")
-    st.write("• LinkedIn: https://www.linkedin.com/in/your-handle")
+    st.write("• Email: mouaz.kashif@example.com")
+    st.write("• LinkedIn: https://www.linkedin.com/in/mouaz-kashif")
     st.write("• GitHub: https://github.com/Mouaz-Kashif")
     st.write("• Project: https://solar-panel-inspection-app.streamlit.app/")
     st.markdown("</div>", unsafe_allow_html=True)
