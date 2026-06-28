@@ -528,9 +528,22 @@ elif page == "Why trust the model?":
 
     def embed_pdf_from_url(url: str, title: str, height: int = 640):
         b = download_bytes(url, timeout=120)
-        st.download_button(f"Download {title}", data=b, file_name=f"{title}.pdf", mime="application/pdf")
+        st.download_button(
+            f"Download {title}.pdf",
+            data=b,
+            file_name=f"{title}.pdf",
+            mime="application/pdf",
+            use_container_width=False,
+        )
+
+        st.info(
+            "Browser security can block embedded PDFs in iframes on Streamlit. "
+            "Use the download button above to view the PDF, or open it in a new tab."
+        )
+
+        # Try embedding anyway (works in some browsers), but don't rely on it.
         b64 = base64.b64encode(b).decode("utf-8")
-        html = f"""<iframe src="data:application/pdf;base64,{b64}" width="100%" height="{height}" style="border: 1px solid rgba(255,255,255,0.12); border-radius: 12px;"></iframe>"""
+        html = f"""<iframe sandbox="allow-same-origin allow-scripts" src="data:application/pdf;base64,{b64}" width="100%" height="{height}" style="border: 1px solid rgba(255,255,255,0.12); border-radius: 12px;"></iframe>"""
         st.markdown(html, unsafe_allow_html=True)
 
     st.subheader("Grad‑CAM (best model)")
