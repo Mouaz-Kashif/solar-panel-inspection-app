@@ -30,16 +30,24 @@ st.markdown(
     """
 <style>
 :root {
-  --bg0: #060A0F;
-  --bg1: #0A1420;
+  --bg0: #05070B;
+  --bg1: #09131E;
+  --grid: rgba(255,255,255,0.05);
   --card: rgba(255,255,255,0.06);
-  --card2: rgba(255,255,255,0.08);
-  --stroke: rgba(255,255,255,0.10);
+  --stroke: rgba(255,255,255,0.11);
   --text: rgba(255,255,255,0.92);
-  --muted: rgba(255,255,255,0.65);
-  --solar: #FFD166;   /* warm sunlight */
-  --ion:   #4CC9F0;   /* cool electric */
-  --warn:  #F25F5C;
+  --muted: rgba(255,255,255,0.66);
+  --solar: #FFD166;   /* sunlight */
+  --ion:   #4CC9F0;   /* electricity */
+  --vio:   #7C3AED;   /* futuristic accent */
+}
+
+/* subtle grid background */
+.stApp {
+  background:
+    radial-gradient(1200px 600px at 20% 0%, rgba(255,209,102,0.10), transparent 55%),
+    radial-gradient(900px 500px at 90% 10%, rgba(76,201,240,0.10), transparent 55%),
+    linear-gradient(180deg, var(--bg0), var(--bg1));
 }
 
 .block-container {padding-top: 2.2rem; padding-bottom: 2.5rem; max-width: 1200px;}
@@ -48,19 +56,34 @@ h1, h2, h3, h4 {letter-spacing: -0.02em;}
 
 /* Sidebar */
 section[data-testid="stSidebar"] {
-  background: radial-gradient(1200px 800px at 20% 10%, rgba(76,201,240,0.10), transparent 60%),
-              radial-gradient(1000px 700px at 70% 30%, rgba(255,209,102,0.10), transparent 55%),
-              linear-gradient(180deg, var(--bg0), var(--bg1));
+  background:
+    radial-gradient(900px 600px at 30% 10%, rgba(124,58,237,0.10), transparent 55%),
+    radial-gradient(1000px 700px at 70% 30%, rgba(76,201,240,0.10), transparent 60%),
+    linear-gradient(180deg, rgba(0,0,0,0.35), rgba(0,0,0,0.55));
   border-right: 1px solid var(--stroke);
 }
 
 /* Cards */
 .card {
-  background: linear-gradient(180deg, var(--card), rgba(255,255,255,0.03));
+  position: relative;
+  background: linear-gradient(180deg, rgba(255,255,255,0.07), rgba(255,255,255,0.03));
   border: 1px solid var(--stroke);
   border-radius: 18px;
   padding: 18px 18px;
-  box-shadow: 0 10px 35px rgba(0,0,0,0.35);
+  box-shadow: 0 12px 40px rgba(0,0,0,0.40);
+}
+
+/* top edge 'energy' line */
+.card:before {
+  content: "";
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  top: 10px;
+  height: 2px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(255,209,102,0.0), rgba(255,209,102,0.55), rgba(76,201,240,0.55), rgba(124,58,237,0.0));
+  filter: blur(0.2px);
 }
 
 .hero {
@@ -74,18 +97,20 @@ section[data-testid="stSidebar"] {
 }
 
 .kicker {color: var(--muted); text-transform: uppercase; letter-spacing: 0.18em; font-size: 0.75rem;}
-.bigtitle {font-size: 2.25rem; font-weight: 800; color: var(--text); margin: 0.15rem 0 0.35rem 0;}
-.sub {color: var(--muted); margin: 0; max-width: 70ch;}
+.bigtitle {font-size: 2.35rem; font-weight: 850; color: var(--text); margin: 0.15rem 0 0.35rem 0;}
+.sub {color: var(--muted); margin: 0; max-width: 75ch; line-height: 1.45;}
 .badge {
-  display:inline-block; padding: 0.35rem 0.6rem; border-radius: 999px;
-  background: rgba(255,209,102,0.15); border: 1px solid rgba(255,209,102,0.30);
-  color: var(--text); font-size: 0.80rem;
+  display:inline-block; padding: 0.35rem 0.65rem; border-radius: 999px;
+  background: rgba(76,201,240,0.14); border: 1px solid rgba(76,201,240,0.28);
+  color: var(--text); font-size: 0.82rem;
 }
-.small {color: var(--muted); font-size: 0.9rem;}
 
 /* Tables */
-[data-testid="stTable"] {border: 1px solid var(--stroke); border-radius: 14px; overflow: hidden;}
-
+[data-testid="stTable"], [data-testid="stDataFrame"] {
+  border: 1px solid var(--stroke);
+  border-radius: 14px;
+  overflow: hidden;
+}
 </style>
 """,
     unsafe_allow_html=True,
@@ -122,10 +147,14 @@ def device() -> torch.device:
 
 
 @st.cache_data(show_spinner=False)
-def download_model_bytes(url: str) -> bytes:
-    r = requests.get(url, timeout=120)
+def download_bytes(url: str, timeout: int = 120) -> bytes:
+    r = requests.get(url, timeout=timeout)
     r.raise_for_status()
     return r.content
+
+@st.cache_data(show_spinner=False)
+def download_model_bytes(url: str) -> bytes:
+    return download_bytes(url, timeout=180)
 
 
 @st.cache_resource(show_spinner=False)
@@ -227,6 +256,17 @@ PAGES = [
     "Why trust the model?",
     "About",
 ]
+
+ASSET_BASE = "https://github.com/Mouaz-Kashif/solar-panel-inspection-app/releases/download/v1.0-assets"
+ASSETS = {
+    "confusion_matrix_best": f"{ASSET_BASE}/confusion_matrix_efficientnetv2.pdf",
+    "train_curves_best": f"{ASSET_BASE}/train_val_curves_efficientnetv2.pdf",
+    "model_comparison_pdf": f"{ASSET_BASE}/model_comparison.pdf",
+    "model_comparison_csv": f"{ASSET_BASE}/model_comparison.csv",
+    "gradcam_pdf": f"{ASSET_BASE}/gradcam_examples_best_model.pdf",
+    "ig_pdf": f"{ASSET_BASE}/integrated_gradients_best_model.pdf",
+    "demo_zip": f"{ASSET_BASE}/demo_images.zip",
+}
 
 with st.sidebar:
     st.markdown("<div class='kicker'>Navigation</div>", unsafe_allow_html=True)
@@ -367,29 +407,55 @@ elif page == "Project information":
 elif page == "Model performance":
     st.markdown("<div class='hero'>", unsafe_allow_html=True)
     st.markdown("<div class='kicker'>Held‑out test set</div>", unsafe_allow_html=True)
-    st.markdown("<div class='bigtitle'>Model comparison</div>", unsafe_allow_html=True)
-    st.markdown("<p class='sub'>Paste your final CSV metrics into the app to display a clean comparison dashboard.</p>", unsafe_allow_html=True)
+    st.markdown("<div class='bigtitle'>Model performance</div>", unsafe_allow_html=True)
+    st.markdown(
+        "<p class='sub'>A compact, test‑set evaluation dashboard. Values come from the Kaggle notebook run and are served here as immutable release assets.</p>",
+        unsafe_allow_html=True,
+    )
     st.markdown("</div>", unsafe_allow_html=True)
 
     st.write("")
     st.markdown("<div class='card'>", unsafe_allow_html=True)
-    st.subheader("Upload model comparison CSV")
-    st.caption("Use the Results/model_comparison.csv generated by your Kaggle notebook.")
-    comp_file = st.file_uploader("model_comparison.csv", type=["csv"], key="comp_csv", label_visibility="collapsed")
-
-    if comp_file is None:
-        st.info("Upload Results/model_comparison.csv to render the comparison.")
-        st.markdown("</div>", unsafe_allow_html=True)
-        st.stop()
 
     import pandas as pd
 
-    dfc = pd.read_csv(comp_file)
-    st.write(dfc)
+    with st.spinner("Loading evaluation assets..."):
+        dfc = pd.read_csv(io.BytesIO(download_bytes(ASSETS["model_comparison_csv"], timeout=120)))
 
-    # Simple highlights
+    # Headline metrics
     best_row = dfc.sort_values("test_macro_f1", ascending=False).iloc[0]
-    st.success(f"Best by Macro‑F1: {best_row['model']} (Macro‑F1 = {best_row['test_macro_f1']:.3f}, Acc = {best_row['test_accuracy']:.3f})")
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Best model", str(best_row["model"]))
+    m2.metric("Macro‑F1", f"{float(best_row['test_macro_f1']):.3f}")
+    m3.metric("Accuracy", f"{float(best_row['test_accuracy']):.3f}")
+    m4.metric("Params", f"{int(best_row['params']):,}")
+
+    st.write("")
+    st.subheader("Comparison table")
+    show = dfc.copy()
+    # friendly formatting
+    for col in ["test_accuracy", "test_macro_f1", "inference_time_sec_11_batches"]:
+        if col in show.columns:
+            show[col] = show[col].astype(float).map(lambda x: f"{x:.4f}")
+    if "params" in show.columns:
+        show["params"] = show["params"].astype(int).map(lambda x: f"{x:,}")
+
+    st.dataframe(show, use_container_width=True, hide_index=True)
+
+    st.write("")
+    c1, c2 = st.columns([1, 1], gap="large")
+
+    with c1:
+        st.subheader("Macro‑F1 (PDF)")
+        b = download_bytes(ASSETS["model_comparison_pdf"], timeout=120)
+        st.download_button("Download model_comparison.pdf", data=b, file_name="model_comparison.pdf", mime="application/pdf")
+        st.caption("Figure exported from Kaggle as PDF.")
+
+    with c2:
+        st.subheader("Best model confusion matrix (PDF)")
+        b = download_bytes(ASSETS["confusion_matrix_best"], timeout=120)
+        st.download_button("Download confusion_matrix_efficientnetv2.pdf", data=b, file_name="confusion_matrix_efficientnetv2.pdf", mime="application/pdf")
+        st.caption("Confusion matrix on the held‑out test set.")
 
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -400,40 +466,33 @@ elif page == "Model performance":
 elif page == "Why trust the model?":
     st.markdown("<div class='hero'>", unsafe_allow_html=True)
     st.markdown("<div class='kicker'>Explainability</div>", unsafe_allow_html=True)
-    st.markdown("<div class='bigtitle'>Accuracy isn’t enough</div>", unsafe_allow_html=True)
+    st.markdown("<div class='bigtitle'>Why trust the model?</div>", unsafe_allow_html=True)
     st.markdown(
-        "<p class='sub'>We use explanation methods to verify the model focuses on meaningful panel-surface evidence rather than background shortcuts (sky, frames, reflections).</p>",
+        "<p class='sub'>High accuracy alone is not enough. We verify that the model attends to panel-surface evidence (soiling/damage) instead of background shortcuts (sky, frames, reflections).</p>",
         unsafe_allow_html=True,
     )
     st.markdown("</div>", unsafe_allow_html=True)
 
     st.write("")
     st.markdown("<div class='card'>", unsafe_allow_html=True)
-    st.subheader("Upload explanation figures (PDF) from Kaggle")
-    st.caption("Upload your `gradcam_examples_best_model.pdf` and `integrated_gradients_best_model.pdf` to display them here.")
 
-    pdf1 = st.file_uploader("Grad‑CAM PDF", type=["pdf"], key="gc_pdf")
-    pdf2 = st.file_uploader("Integrated Gradients PDF", type=["pdf"], key="ig_pdf")
-
-    if pdf1 is None and pdf2 is None:
-        st.info("Upload at least one PDF to display explanations.")
-        st.markdown("</div>", unsafe_allow_html=True)
-        st.stop()
-
-    # Streamlit can't render PDFs natively in all browsers, but we can offer download + embed via base64.
     import base64
 
-    def show_pdf(file, title):
-        b = file.getvalue()
-        st.download_button(f"Download {title}", data=b, file_name=file.name, mime="application/pdf")
+    def embed_pdf_from_url(url: str, title: str, height: int = 640):
+        b = download_bytes(url, timeout=120)
+        st.download_button(f"Download {title}", data=b, file_name=f"{title}.pdf", mime="application/pdf")
         b64 = base64.b64encode(b).decode("utf-8")
-        html = f"""<iframe src="data:application/pdf;base64,{b64}" width="100%" height="600" style="border: 1px solid rgba(255,255,255,0.12); border-radius: 12px;"></iframe>"""
+        html = f"""<iframe src="data:application/pdf;base64,{b64}" width="100%" height="{height}" style="border: 1px solid rgba(255,255,255,0.12); border-radius: 12px;"></iframe>"""
         st.markdown(html, unsafe_allow_html=True)
 
-    if pdf1 is not None:
-        show_pdf(pdf1, "Grad‑CAM")
-    if pdf2 is not None:
-        show_pdf(pdf2, "Integrated Gradients")
+    st.subheader("Grad‑CAM (best model)")
+    embed_pdf_from_url(ASSETS["gradcam_pdf"], "gradcam_examples_best_model")
+
+    st.write("")
+    st.subheader("Integrated Gradients (best model)")
+    embed_pdf_from_url(ASSETS["ig_pdf"], "integrated_gradients_best_model")
+
+    st.caption("These figures were exported from the Kaggle notebook as PDFs and served here as release assets.")
 
     st.markdown("</div>", unsafe_allow_html=True)
 
