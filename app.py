@@ -5,7 +5,7 @@ from pathlib import Path
 
 import numpy as np
 import requests
-import streamlit as st
+import streamlit as sts
 from PIL import Image
 
 import torch
