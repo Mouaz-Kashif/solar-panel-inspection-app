@@ -1,6 +1,8 @@
 streamlit==1.36.0
-torch==2.3.1
-torchvision==0.18.1
+# Streamlit Community Cloud is using a newer Python (see build logs).
+# Use a torch version that has wheels for that environment.
+torch==2.12.1
+torchvision==0.27.1
 numpy==1.26.4
 pillow==10.3.0
 requests==2.32.3
