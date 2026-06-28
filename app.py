@@ -1,5 +1,6 @@
+import base64
 import io
-import time
+import zipfile
 from pathlib import Path
 
 import numpy as np
@@ -11,29 +12,22 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torchvision import transforms
-from torchvision.models import efficientnet_v2_s
-from torchvision.models import EfficientNet_V2_S_Weights
+from torchvision.models import EfficientNet_V2_S_Weights, efficientnet_v2_s
 
-# -------------------------
+# =========================
 # App config
-# -------------------------
-st.set_page_config(
-    page_title="Solar Panel Inspection",
-    page_icon="☀️",
-    layout="wide",
-)
+# =========================
+st.set_page_config(page_title="Solar Panel Inspection", page_icon="☀️", layout="wide")
 
-# -------------------------
-# Style (opinionated, distinct)
-# -------------------------
+# =========================
+# Style (futuristic console)
+# =========================
 st.markdown(
     """
 <style>
 :root {
   --bg0: #05070B;
   --bg1: #09131E;
-  --grid: rgba(255,255,255,0.05);
-  --card: rgba(255,255,255,0.06);
   --stroke: rgba(255,255,255,0.11);
   --text: rgba(255,255,255,0.92);
   --muted: rgba(255,255,255,0.66);
@@ -42,7 +36,6 @@ st.markdown(
   --vio:   #7C3AED;   /* futuristic accent */
 }
 
-/* subtle grid background */
 .stApp {
   background:
     radial-gradient(1200px 600px at 20% 0%, rgba(255,209,102,0.10), transparent 55%),
@@ -54,7 +47,6 @@ st.markdown(
 
 h1, h2, h3, h4 {letter-spacing: -0.02em;}
 
-/* Sidebar */
 section[data-testid="stSidebar"] {
   background:
     radial-gradient(900px 600px at 30% 10%, rgba(124,58,237,0.10), transparent 55%),
@@ -63,7 +55,6 @@ section[data-testid="stSidebar"] {
   border-right: 1px solid var(--stroke);
 }
 
-/* Cards */
 .card {
   position: relative;
   background: linear-gradient(180deg, rgba(255,255,255,0.07), rgba(255,255,255,0.03));
@@ -73,7 +64,6 @@ section[data-testid="stSidebar"] {
   box-shadow: 0 12px 40px rgba(0,0,0,0.40);
 }
 
-/* top edge 'energy' line */
 .card:before {
   content: "";
   position: absolute;
@@ -83,7 +73,6 @@ section[data-testid="stSidebar"] {
   height: 2px;
   border-radius: 999px;
   background: linear-gradient(90deg, rgba(255,209,102,0.0), rgba(255,209,102,0.55), rgba(76,201,240,0.55), rgba(124,58,237,0.0));
-  filter: blur(0.2px);
 }
 
 .hero {
@@ -105,8 +94,7 @@ section[data-testid="stSidebar"] {
   color: var(--text); font-size: 0.82rem;
 }
 
-/* Tables */
-[data-testid="stTable"], [data-testid="stDataFrame"] {
+[data-testid="stDataFrame"], [data-testid="stTable"] {
   border: 1px solid var(--stroke);
   border-radius: 14px;
   overflow: hidden;
@@ -116,9 +104,9 @@ section[data-testid="stSidebar"] {
     unsafe_allow_html=True,
 )
 
-# -------------------------
+# =========================
 # Constants
-# -------------------------
+# =========================
 CLASS_NAMES = [
     "Bird-drop",
     "Clean",
@@ -129,7 +117,17 @@ CLASS_NAMES = [
 ]
 
 MODEL_URL = "https://github.com/Mouaz-Kashif/solar-panel-inspection-app/releases/download/v1.0-model/best_efficientnetv2.pt"
-MODEL_LOCAL = Path("best_efficientnetv2.pt")
+
+ASSET_BASE = "https://github.com/Mouaz-Kashif/solar-panel-inspection-app/releases/download/v1.0-assets"
+ASSETS = {
+    "confusion_matrix_best": f"{ASSET_BASE}/confusion_matrix_efficientnetv2.pdf",
+    "train_curves_best": f"{ASSET_BASE}/train_val_curves_efficientnetv2.pdf",
+    "model_comparison_pdf": f"{ASSET_BASE}/model_comparison.pdf",
+    "model_comparison_csv": f"{ASSET_BASE}/model_comparison.csv",
+    "gradcam_pdf": f"{ASSET_BASE}/gradcam_examples_best_model.pdf",
+    "ig_pdf": f"{ASSET_BASE}/integrated_gradients_best_model.pdf",
+    "demo_zip": f"{ASSET_BASE}/demo_images.zip",
+}
 
 IMG_SIZE = 224
 
@@ -152,10 +150,6 @@ def download_bytes(url: str, timeout: int = 120) -> bytes:
     r.raise_for_status()
     return r.content
 
-@st.cache_data(show_spinner=False)
-def download_model_bytes(url: str) -> bytes:
-    return download_bytes(url, timeout=180)
-
 
 @st.cache_resource(show_spinner=False)
 def load_model() -> nn.Module:
@@ -164,13 +158,8 @@ def load_model() -> nn.Module:
     in_f = m.classifier[1].in_features
     m.classifier[1] = nn.Linear(in_f, len(CLASS_NAMES))
 
-    if MODEL_LOCAL.exists():
-        state = torch.load(MODEL_LOCAL, map_location="cpu")
-    else:
-        b = download_model_bytes(MODEL_URL)
-        state = torch.load(io.BytesIO(b), map_location="cpu")
-
-    # Be tolerant to minor version differences
+    b = download_bytes(MODEL_URL, timeout=180)
+    state = torch.load(io.BytesIO(b), map_location="cpu")
     m.load_state_dict(state, strict=True)
     m.eval()
     m.to(device())
@@ -246,9 +235,63 @@ def overlay_heatmap(pil: Image.Image, heat: np.ndarray, alpha: float = 0.45):
     return np.clip(over, 0, 1)
 
 
-# -------------------------
+# =========================
+# Demo images (download + index)
+# =========================
+@st.cache_resource(show_spinner=False)
+def get_demo_images_index():
+    demo_root = Path(".demo_images")
+    if not demo_root.exists():
+        demo_root.mkdir(parents=True, exist_ok=True)
+        zbytes = download_bytes(ASSETS["demo_zip"], timeout=180)
+        with zipfile.ZipFile(io.BytesIO(zbytes)) as zf:
+            zf.extractall(demo_root)
+
+    base = demo_root / "demo_images"
+    idx = {c: [] for c in CLASS_NAMES}
+    if base.exists():
+        for c in CLASS_NAMES:
+            p = base / c
+            if p.exists():
+                idx[c] = sorted([x for x in p.iterdir() if x.is_file()])
+    return idx
+
+
+def load_random_demo_pil(class_name: str) -> Image.Image | None:
+    import random
+
+    files = get_demo_images_index().get(class_name, [])
+    if not files:
+        return None
+    return Image.open(random.choice(files)).convert("RGB")
+
+
+# =========================
+# Session state (persist image across reruns, e.g., slider)
+# =========================
+if "pil_bytes" not in st.session_state:
+    st.session_state["pil_bytes"] = None
+if "pil_name" not in st.session_state:
+    st.session_state["pil_name"] = None
+
+
+def set_pil(pil: Image.Image, name: str):
+    buf = io.BytesIO()
+    pil.save(buf, format="PNG")
+    st.session_state["pil_bytes"] = buf.getvalue()
+    st.session_state["pil_name"] = name
+
+
+def get_pil() -> Image.Image | None:
+    b = st.session_state.get("pil_bytes")
+    if not b:
+        return None
+    return Image.open(io.BytesIO(b)).convert("RGB")
+
+
+# =========================
 # Navigation
-# -------------------------
+# =========================
 PAGES = [
     "Live demo",
     "Project information",
@@ -256,17 +299,6 @@ PAGES = [
     "Why trust the model?",
     "About",
 ]
-
-ASSET_BASE = "https://github.com/Mouaz-Kashif/solar-panel-inspection-app/releases/download/v1.0-assets"
-ASSETS = {
-    "confusion_matrix_best": f"{ASSET_BASE}/confusion_matrix_efficientnetv2.pdf",
-    "train_curves_best": f"{ASSET_BASE}/train_val_curves_efficientnetv2.pdf",
-    "model_comparison_pdf": f"{ASSET_BASE}/model_comparison.pdf",
-    "model_comparison_csv": f"{ASSET_BASE}/model_comparison.csv",
-    "gradcam_pdf": f"{ASSET_BASE}/gradcam_examples_best_model.pdf",
-    "ig_pdf": f"{ASSET_BASE}/integrated_gradients_best_model.pdf",
-    "demo_zip": f"{ASSET_BASE}/demo_images.zip",
-}
 
 with st.sidebar:
     st.markdown("<div class='kicker'>Navigation</div>", unsafe_allow_html=True)
@@ -279,9 +311,6 @@ with st.sidebar:
     st.write(", ".join(CLASS_NAMES))
 
 
-# -------------------------
-# Shared model handle
-# -------------------------
 @st.cache_resource(show_spinner=False)
 def get_model_and_layer():
     m = load_model()
@@ -289,55 +318,16 @@ def get_model_and_layer():
     return m, layer
 
 
-# -------------------------
-# Demo image helpers (top-level)
-# -------------------------
-@st.cache_resource(show_spinner=False)
-def get_demo_images_index():
-    """Download demo_images.zip once and build an index: class -> list[Path]."""
-    import zipfile
-
-    demo_root = Path(".demo_images")
-    if not demo_root.exists():
-        demo_root.mkdir(parents=True, exist_ok=True)
-        zbytes = download_bytes(ASSETS["demo_zip"], timeout=180)
-        with zipfile.ZipFile(io.BytesIO(zbytes)) as zf:
-            zf.extractall(demo_root)
-
-    # expected structure: .demo_images/demo_images/<class>/file.jpg
-    base = demo_root / "demo_images"
-    idx = {c: [] for c in CLASS_NAMES}
-
-    if base.exists():
-        for c in CLASS_NAMES:
-            p = base / c
-            if p.exists():
-                idx[c] = sorted([x for x in p.iterdir() if x.is_file()])
-
-    return idx
-
-
-def load_random_demo_pil(class_name: str) -> Image.Image | None:
-    import random
-
-    idx = get_demo_images_index()
-    files = idx.get(class_name, [])
-    if not files:
-        return None
-    fp = random.choice(files)
-    return Image.open(fp).convert("RGB")
-
-
-# -------------------------
+# =========================
 # Page: Live demo
-# -------------------------
+# =========================
 if page == "Live demo":
     st.markdown(
         """
 <div class="hero">
   <div class="kicker">Explainable computer vision for renewable-energy maintenance</div>
   <div class="bigtitle">Solar Panel Dust & Fault Classification</div>
-  <p class="sub">Upload a solar panel image to classify its surface condition and generate a Grad‑CAM heatmap showing where the model focused.</p>
+  <p class="sub">Upload a solar panel image or use a dataset sample. Adjust heatmap strength without losing your input.</p>
   <span class="badge">Best model: EfficientNetV2 (transfer learning)</span>
 </div>
 """,
@@ -350,8 +340,8 @@ if page == "Live demo":
     with col_left:
         st.markdown("<div class='card'>", unsafe_allow_html=True)
         st.subheader("Input")
+        st.caption("Use an example from the dataset or upload your own image.")
 
-        st.caption("No image handy? Use a built‑in sample from the dataset.")
         bcols = st.columns(3)
         sample_pick = None
         for i, cname in enumerate(CLASS_NAMES):
@@ -359,35 +349,33 @@ if page == "Live demo":
                 if st.button(f"Try: {cname}", use_container_width=True):
                     sample_pick = cname
 
+        if sample_pick is not None:
+            with st.spinner("Loading sample image..."):
+                pil_sample = load_random_demo_pil(sample_pick)
+                if pil_sample is None:
+                    st.warning("No demo images found for that class. Check demo_images.zip structure in v1.0-assets.")
+                else:
+                    set_pil(pil_sample, f"sample_{sample_pick}.png")
+
         up = st.file_uploader(
             "Solar panel photo",
             type=["jpg", "jpeg", "png", "webp"],
             label_visibility="collapsed",
         )
+        if up is not None:
+            try:
+                pil_up = Image.open(up).convert("RGB")
+                set_pil(pil_up, up.name)
+            except Exception:
+                st.error("Could not read that file as an image.")
 
-        pil = None
-        if sample_pick is not None:
-            with st.spinner("Loading sample image..."):
-                pil = load_random_demo_pil(sample_pick)
-                if pil is None:
-                    st.warning(
-                        "No demo images found for that class. Check demo_images.zip structure in v1.0-assets."
-                    )
-
-        if pil is None and up is None:
-            st.info("Upload an image to run classification, or click a sample button above.")
+        pil = get_pil()
+        if pil is None:
+            st.info("Upload an image or click a sample button.")
             st.markdown("</div>", unsafe_allow_html=True)
             st.stop()
 
-        if pil is None:
-            try:
-                pil = Image.open(up).convert("RGB")
-            except Exception:
-                st.error("Could not read that file as an image. Try a JPG/PNG.")
-                st.markdown("</div>", unsafe_allow_html=True)
-                st.stop()
-
-        st.image(pil, caption="Input image", use_container_width=True)
+        st.image(pil, caption=st.session_state.get("pil_name") or "Input image", use_container_width=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
     with col_right:
@@ -414,14 +402,8 @@ if page == "Live demo":
         topk = 3
         top_idx = np.argsort(-probs)[:topk]
         st.write("Top‑3 probabilities")
-        st.table(
-            {
-                "class": [CLASS_NAMES[i] for i in top_idx],
-                "probability": [float(probs[i]) for i in top_idx],
-            }
-        )
+        st.table({"class": [CLASS_NAMES[i] for i in top_idx], "probability": [float(probs[i]) for i in top_idx]})
 
-        st.write("Explanation (Grad‑CAM)")
         heat_alpha = st.slider("Heatmap strength", min_value=0.15, max_value=0.75, value=0.45, step=0.05)
 
         with st.spinner("Generating Grad‑CAM..."):
@@ -433,9 +415,10 @@ if page == "Live demo":
 
     st.caption("Prototype decision-support tool. Verify predictions with a technician before maintenance actions.")
 
-# -------------------------
+
+# =========================
 # Page: Project information
-# -------------------------
+# =========================
 elif page == "Project information":
     st.markdown("<div class='hero'>", unsafe_allow_html=True)
     st.markdown("<div class='kicker'>What this project solves</div>", unsafe_allow_html=True)
@@ -467,15 +450,15 @@ elif page == "Project information":
         st.markdown("</div>", unsafe_allow_html=True)
 
 
-# -------------------------
+# =========================
 # Page: Model performance
-# -------------------------
+# =========================
 elif page == "Model performance":
     st.markdown("<div class='hero'>", unsafe_allow_html=True)
     st.markdown("<div class='kicker'>Held‑out test set</div>", unsafe_allow_html=True)
     st.markdown("<div class='bigtitle'>Model performance</div>", unsafe_allow_html=True)
     st.markdown(
-        "<p class='sub'>A compact, test‑set evaluation dashboard. Values come from the Kaggle notebook run and are served here as immutable release assets.</p>",
+        "<p class='sub'>Test‑set evaluation dashboard. Values come from the Kaggle notebook run and are served here as release assets.</p>",
         unsafe_allow_html=True,
     )
     st.markdown("</div>", unsafe_allow_html=True)
@@ -488,7 +471,6 @@ elif page == "Model performance":
     with st.spinner("Loading evaluation assets..."):
         dfc = pd.read_csv(io.BytesIO(download_bytes(ASSETS["model_comparison_csv"], timeout=120)))
 
-    # Headline metrics
     best_row = dfc.sort_values("test_macro_f1", ascending=False).iloc[0]
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Best model", str(best_row["model"]))
@@ -499,7 +481,6 @@ elif page == "Model performance":
     st.write("")
     st.subheader("Comparison table")
     show = dfc.copy()
-    # friendly formatting
     for col in ["test_accuracy", "test_macro_f1", "inference_time_sec_11_batches"]:
         if col in show.columns:
             show[col] = show[col].astype(float).map(lambda x: f"{x:.4f}")
@@ -509,40 +490,41 @@ elif page == "Model performance":
     st.dataframe(show, use_container_width=True, hide_index=True)
 
     st.write("")
-    c1, c2 = st.columns([1, 1], gap="large")
+    c1, c2, c3 = st.columns([1, 1, 1], gap="large")
 
     with c1:
-        st.subheader("Macro‑F1 (PDF)")
+        st.subheader("Macro‑F1 figure")
         b = download_bytes(ASSETS["model_comparison_pdf"], timeout=120)
         st.download_button("Download model_comparison.pdf", data=b, file_name="model_comparison.pdf", mime="application/pdf")
-        st.caption("Figure exported from Kaggle as PDF.")
 
     with c2:
-        st.subheader("Best model confusion matrix (PDF)")
+        st.subheader("Best model confusion matrix")
         b = download_bytes(ASSETS["confusion_matrix_best"], timeout=120)
         st.download_button("Download confusion_matrix_efficientnetv2.pdf", data=b, file_name="confusion_matrix_efficientnetv2.pdf", mime="application/pdf")
-        st.caption("Confusion matrix on the held‑out test set.")
+
+    with c3:
+        st.subheader("Training curves")
+        b = download_bytes(ASSETS["train_curves_best"], timeout=120)
+        st.download_button("Download train_val_curves_efficientnetv2.pdf", data=b, file_name="train_val_curves_efficientnetv2.pdf", mime="application/pdf")
 
     st.markdown("</div>", unsafe_allow_html=True)
 
 
-# -------------------------
+# =========================
 # Page: Why trust the model?
-# -------------------------
+# =========================
 elif page == "Why trust the model?":
     st.markdown("<div class='hero'>", unsafe_allow_html=True)
     st.markdown("<div class='kicker'>Explainability</div>", unsafe_allow_html=True)
     st.markdown("<div class='bigtitle'>Why trust the model?</div>", unsafe_allow_html=True)
     st.markdown(
-        "<p class='sub'>High accuracy alone is not enough. We verify that the model attends to panel-surface evidence (soiling/damage) instead of background shortcuts (sky, frames, reflections).</p>",
+        "<p class='sub'>High accuracy alone is not enough. We verify that the model attends to panel-surface evidence rather than background shortcuts.</p>",
         unsafe_allow_html=True,
     )
     st.markdown("</div>", unsafe_allow_html=True)
 
     st.write("")
     st.markdown("<div class='card'>", unsafe_allow_html=True)
-
-    import base64
 
     def embed_pdf_from_url(url: str, title: str, height: int = 640):
         b = download_bytes(url, timeout=120)
@@ -558,14 +540,14 @@ elif page == "Why trust the model?":
     st.subheader("Integrated Gradients (best model)")
     embed_pdf_from_url(ASSETS["ig_pdf"], "integrated_gradients_best_model")
 
-    st.caption("These figures were exported from the Kaggle notebook as PDFs and served here as release assets.")
+    st.caption("Figures exported from Kaggle as PDFs and served here as release assets.")
 
     st.markdown("</div>", unsafe_allow_html=True)
 
 
-# -------------------------
+# =========================
 # Page: About
-# -------------------------
+# =========================
 elif page == "About":
     st.markdown("<div class='hero'>", unsafe_allow_html=True)
     st.markdown("<div class='kicker'>Profile</div>", unsafe_allow_html=True)
@@ -584,4 +566,3 @@ elif page == "About":
     st.write("• GitHub: https://github.com/Mouaz-Kashif")
     st.write("• Project: https://solar-panel-inspection-app.streamlit.app/")
     st.markdown("</div>", unsafe_allow_html=True)
-
