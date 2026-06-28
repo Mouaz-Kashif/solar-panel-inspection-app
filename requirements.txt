@@ -1,9 +1,12 @@
 streamlit==1.36.0
-# Streamlit Community Cloud is using a newer Python (see build logs).
-# Use a torch version that has wheels for that environment.
+# Streamlit Community Cloud is currently using Python 3.14.
+# Avoid pinning to versions that don't provide cp314 wheels.
+# Let pip pick compatible wheels for numpy/pillow.
+
 torch==2.12.1
 torchvision==0.27.1
-numpy==1.26.4
-pillow==10.3.0
-requests==2.32.3
-matplotlib==3.8.4
+
+numpy
+pillow
+requests
+matplotlib
