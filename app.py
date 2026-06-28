@@ -308,7 +308,8 @@ if page == "Live demo":
 
     col_left, col_right = st.columns([1, 1], gap="large")
 
-    @st.cache_resource(show_spinner=False)
+# Demo image helpers (kept outside the page block to avoid indentation issues)
+@st.cache_resource(show_spinner=False)
 def get_demo_images_index():
     """Download demo_images.zip once and build an index: class -> list[Path]."""
     import zipfile
@@ -350,7 +351,7 @@ def load_random_demo_pil(class_name: str) -> Image.Image | None:
     return Image.open(fp).convert("RGB")
 
 
-with col_left:
+    with col_left:
         st.markdown("<div class='card'>", unsafe_allow_html=True)
         st.subheader("Upload image")
 
