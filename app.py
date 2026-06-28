@@ -290,6 +290,45 @@ def get_model_and_layer():
 
 
 # -------------------------
+# Demo image helpers (top-level)
+# -------------------------
+@st.cache_resource(show_spinner=False)
+def get_demo_images_index():
+    """Download demo_images.zip once and build an index: class -> list[Path]."""
+    import zipfile
+
+    demo_root = Path(".demo_images")
+    if not demo_root.exists():
+        demo_root.mkdir(parents=True, exist_ok=True)
+        zbytes = download_bytes(ASSETS["demo_zip"], timeout=180)
+        with zipfile.ZipFile(io.BytesIO(zbytes)) as zf:
+            zf.extractall(demo_root)
+
+    # expected structure: .demo_images/demo_images/<class>/file.jpg
+    base = demo_root / "demo_images"
+    idx = {c: [] for c in CLASS_NAMES}
+
+    if base.exists():
+        for c in CLASS_NAMES:
+            p = base / c
+            if p.exists():
+                idx[c] = sorted([x for x in p.iterdir() if x.is_file()])
+
+    return idx
+
+
+def load_random_demo_pil(class_name: str) -> Image.Image | None:
+    import random
+
+    idx = get_demo_images_index()
+    files = idx.get(class_name, [])
+    if not files:
+        return None
+    fp = random.choice(files)
+    return Image.open(fp).convert("RGB")
+
+
+# -------------------------
 # Page: Live demo
 # -------------------------
 if page == "Live demo":
@@ -308,52 +347,9 @@ if page == "Live demo":
 
     col_left, col_right = st.columns([1, 1], gap="large")
 
-# Demo image helpers (kept outside the page block to avoid indentation issues)
-@st.cache_resource(show_spinner=False)
-def get_demo_images_index():
-    """Download demo_images.zip once and build an index: class -> list[Path]."""
-    import zipfile
-
-    demo_root = Path(".demo_images")
-    if demo_root.exists():
-        # already extracted
-        pass
-    else:
-        demo_root.mkdir(parents=True, exist_ok=True)
-        zbytes = download_bytes(ASSETS["demo_zip"], timeout=180)
-        with zipfile.ZipFile(io.BytesIO(zbytes)) as zf:
-            zf.extractall(demo_root)
-
-    # expected structure: demo_images/<class>/file.jpg
-    base = demo_root / "demo_images"
-    idx = {}
-    if base.exists():
-        for c in CLASS_NAMES:
-            p = base / c
-            if p.exists():
-                idx[c] = sorted([x for x in p.iterdir() if x.is_file()])
-            else:
-                idx[c] = []
-    else:
-        idx = {c: [] for c in CLASS_NAMES}
-
-    return idx
-
-
-def load_random_demo_pil(class_name: str) -> Image.Image | None:
-    import random
-
-    idx = get_demo_images_index()
-    files = idx.get(class_name, [])
-    if not files:
-        return None
-    fp = random.choice(files)
-    return Image.open(fp).convert("RGB")
-
-
     with col_left:
         st.markdown("<div class='card'>", unsafe_allow_html=True)
-        st.subheader("Upload image")
+        st.subheader("Input")
 
         st.caption("No image handy? Use a built‑in sample from the dataset.")
         bcols = st.columns(3)
@@ -363,14 +359,20 @@ def load_random_demo_pil(class_name: str) -> Image.Image | None:
                 if st.button(f"Try: {cname}", use_container_width=True):
                     sample_pick = cname
 
-        up = st.file_uploader("Solar panel photo", type=["jpg", "jpeg", "png", "webp"], label_visibility="collapsed")
+        up = st.file_uploader(
+            "Solar panel photo",
+            type=["jpg", "jpeg", "png", "webp"],
+            label_visibility="collapsed",
+        )
 
         pil = None
         if sample_pick is not None:
             with st.spinner("Loading sample image..."):
                 pil = load_random_demo_pil(sample_pick)
                 if pil is None:
-                    st.warning("No demo images found for that class. Re-check demo_images.zip in the release assets.")
+                    st.warning(
+                        "No demo images found for that class. Check demo_images.zip structure in v1.0-assets."
+                    )
 
         if pil is None and up is None:
             st.info("Upload an image to run classification, or click a sample button above.")
@@ -412,7 +414,12 @@ def load_random_demo_pil(class_name: str) -> Image.Image | None:
         topk = 3
         top_idx = np.argsort(-probs)[:topk]
         st.write("Top‑3 probabilities")
-        st.table({"class": [CLASS_NAMES[i] for i in top_idx], "probability": [float(probs[i]) for i in top_idx]})
+        st.table(
+            {
+                "class": [CLASS_NAMES[i] for i in top_idx],
+                "probability": [float(probs[i]) for i in top_idx],
+            }
+        )
 
         st.write("Explanation (Grad‑CAM)")
         heat_alpha = st.slider("Heatmap strength", min_value=0.15, max_value=0.75, value=0.45, step=0.05)
@@ -425,7 +432,6 @@ def load_random_demo_pil(class_name: str) -> Image.Image | None:
         st.markdown("</div>", unsafe_allow_html=True)
 
     st.caption("Prototype decision-support tool. Verify predictions with a technician before maintenance actions.")
-
 
 # -------------------------
 # Page: Project information
